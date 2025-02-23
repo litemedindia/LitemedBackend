@@ -47,6 +47,15 @@ const Kit = mongoose.models.Kit || mongoose.model("Kit", kitSchema);
 app.get("/", (req, res) => {
     res.send("Server is running!");
 });
+app.get("/kits", async (req, res) => {
+    try {
+        const kits = await Kit.find();
+        res.status(200).json(kits);
+    } catch (error) {
+        console.error("Error fetching kits:", error);
+        res.status(500).json({ message: "Server error while fetching kits" });
+    }
+});
 app.get("/kits/available", async (req, res) => {
     try {
         const { quantity } = req.query;
