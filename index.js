@@ -41,7 +41,7 @@ const kitSchema = new mongoose.Schema({
     invoiceId: { type: String, default: "" }
 });
 
-const Kit = mongoose.model("Kit", kitSchema);
+const Kit = mongoose.models.Kit || mongoose.model("Kit", kitSchema);
 
 // GET request to fetch available kits based on quantity
 app.get("/", (req, res) => {
