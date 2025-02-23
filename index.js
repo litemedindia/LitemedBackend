@@ -107,7 +107,7 @@ app.post("/kits/addDummy", async (req, res) => {
 });
 
 // Multer setup for file uploads
-const upload = multer({ dest: "uploads/" });
+const upload = multer({ dest: "/tmp/" });
 
 // POST request to upload CSV file and insert data into MongoDB
 app.post("/kits/upload", upload.single("file"), async (req, res) => {
@@ -136,16 +136,6 @@ app.post("/kits/upload", upload.single("file"), async (req, res) => {
         res.status(500).json({ error: "Error processing CSV file" });
     }
 });
-
-app.get("/kits", async (req, res) => {
-    try {
-        const kits = await Kit.find(); 
-        res.json(kits);
-    } catch (error) {
-        res.status(500).json({ error: "Error fetching kits" });
-    }
-});
-
 
 app.post("/login", async (req, res) => {
     const { username, password } = req.body;
