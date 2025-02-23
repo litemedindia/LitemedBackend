@@ -1,12 +1,13 @@
 require("dotenv").config();
 const express = require("express");
-const cors = require("cors"); // Import CORS
+const cors = require("cors"); 
 const connectDB = require("./db");
 const mongoose = require("mongoose");
 const jwt = require("jsonwebtoken");
 const multer = require("multer");
 const csv = require("csv-parser");
 const bcrypt = require("bcryptjs");
+const port = 3001;
 const fs = require("fs");
 
 // Connect to MongoDB
@@ -42,6 +43,9 @@ const kitSchema = new mongoose.Schema({
 const Kit = mongoose.model("Kit", kitSchema);
 
 // GET request to fetch available kits based on quantity
+app.get("/", (req, res) => {
+    res.send("Server is running!");
+});
 app.get("/kits/available", async (req, res) => {
     try {
         const { quantity } = req.query;
@@ -199,5 +203,5 @@ app.post("/kits/delete-multiple", async (req, res) => {
     }
 });
 
-const PORT = process.env.PORT || 5001;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
+app.listen(port, () => console.log(`Server running on port ${port}`));
