@@ -28,7 +28,8 @@ const UserSchema = new mongoose.Schema({
     password: String, // Hashed password
 });
 
-const User = mongoose.model("User", UserSchema);
+// Fix OverwriteModelError by checking if model already exists
+const User = mongoose.models.User || mongoose.model("User", UserSchema);
 
 // Define Kit Schema
 const kitSchema = new mongoose.Schema({
