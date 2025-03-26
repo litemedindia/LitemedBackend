@@ -319,12 +319,17 @@ app.get("/cod", async (req, res) => {
 
 app.put("/cod/cancel/:id", async (req, res) => {
     try {
+        // First, find and mark the order as cancelled in the database
         const codOrder = await COD.findById(req.params.id);
         if (!codOrder) {
             return res.status(404).json({ message: "COD order not found" });
         }
 
-        // Cancel the order on Shopify
+        // Mark as cancelled in local database first
+        codOrder.status = "Cancelled";
+        await codOrder.save();
+
+        // Then cancel the order on Shopify
         const shopifyResponse = await axios.post(
             `https://litemed.myshopify.com/admin/api/2024-04/orders/${codOrder.orderId}/cancel.json`,
             {
@@ -339,15 +344,36 @@ app.put("/cod/cancel/:id", async (req, res) => {
             }
         );
 
+        // If Shopify cancellation is successful, trigger the webhook
         if (shopifyResponse.status === 200) {
-            codOrder.status = "Cancelled";
-            await codOrder.save();
+            const webhookUrl = "https://cloud.activepieces.com/api/v1/webhooks/682LiAIPHY4o1YSzvsPKs";
+            const webhookBody = {
+                orderId: codOrder.orderId,
+                orderNo: codOrder.orderNo,
+                customerName: codOrder.customerName,
+                customerEmail: codOrder.customerEmail,
+                customerPhone: codOrder.customerPhone,
+                invoiceId: codOrder.invoiceId,
+                invoiceUrl: codOrder.invoiceUrl,
+                amount: codOrder.amount,
+                status: codOrder.status
+            };
+
+            await axios.post(webhookUrl, webhookBody, {
+                headers: {
+                    "Content-Type": "application/json"
+                }
+            });
+
             res.json({ message: "COD order cancelled successfully", codOrder });
         } else {
+            // If Shopify cancellation fails, you might want to revert the status
+            codOrder.status = "Pending"; // or whatever the previous status was
+            await codOrder.save();
             res.status(shopifyResponse.status).json({ error: "Failed to cancel order on Shopify" });
         }
     } catch (error) {
-        console.error("Error canceling order on Shopify:", error.response?.data || error.message);
+        console.error("Error canceling order:", error.response?.data || error.message);
         res.status(500).json({ error: "Error canceling COD order" });
     }
 });
