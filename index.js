@@ -10,6 +10,7 @@ const bcrypt = require("bcryptjs");
 const port = 3001;
 const fs = require("fs");
 const { console } = require("inspector");
+const axios = require("axios");
 
 // Connect to MongoDB
 connectDB();
@@ -51,6 +52,8 @@ const codSchema = new mongoose.Schema({
     customerEmail: String,
     customerPhone: String,
     invoiceId: String,
+    invoiceUrl: { type: String, default: "" }, 
+    amount: { type: Number, default: 0 },
     status: { type: String, enum: ["Awating Confirmation", "Confirmed" , "Cancelled"], default: "Awating Confirmation" },
 });
 
@@ -204,7 +207,7 @@ app.delete("/kits/:id", async (req, res) => {
 
 
 
-// Updated /cod endpoint
+
 app.post("/cod", async (req, res) => {
     const { 
         orderId, 
@@ -213,7 +216,8 @@ app.post("/cod", async (req, res) => {
         customerEmail, 
         customerPhone, 
         invoiceId, 
-        status 
+        invoiceUrl,
+        amount
     } = req.body;
 
     try {
@@ -225,23 +229,15 @@ app.post("/cod", async (req, res) => {
             customerEmail,
             customerPhone,
             invoiceId,
-            status: "Awating Confirmation"
+            invoiceUrl,
+            amount,
+            status:"Awating Confirmation"
         });
 
         // Save to database
         await codEntry.save();
 
         // Log the details to console
-        console.log("New COD Order Details:");
-        console.log("Order ID:", orderId);
-        console.log("Order Number:", orderNo);
-        console.log("Customer Name:", customerName);
-        console.log("Customer Email:", customerEmail);
-        console.log("Customer Phone:", customerPhone);
-        console.log("Invoice ID:", invoiceId);
-        console.log("Status:", status || "Awating Confirmation");
-
-        // Find related kits (if you still want this functionality)
         const kits = await Kit.find({ orderId });
 
         // Respond with both the COD entry and related kits
@@ -254,6 +250,7 @@ app.post("/cod", async (req, res) => {
         res.status(500).json({ error: "Error processing COD request" });
     }
 });
+
 
 
 
@@ -270,5 +267,96 @@ app.post("/kits/delete-multiple", async (req, res) => {
     }
 });
 
+app.put("/cod/confirm/:id", async (req, res) => {
+    try {
+        // Step 1: Update the COD order status in the database
+        const codOrder = await COD.findById(req.params.id);
+        if (!codOrder) {
+            return res.status(404).json({ message: "COD order not found" });
+        }
+        codOrder.status = "Confirmed";
+        await codOrder.save();
+
+        // Step 2: Update invoice status in Zoho Books
+        const zohoUrl = `https://www.zohoapis.in/books/v3/invoices/${codOrder.invoiceId}/status/sent?organization_id=60015239129`;
+        await axios.post(zohoUrl, {}, {
+            headers: {
+                "Authorization": "Zoho-oauthtoken 1000.196094717c97f662439fc6bf7f126e98.3d56897dc6fc8be0be029081bd337d3c",
+                "Content-Type": "application/json"
+            }
+        });
+
+        // Step 3: Trigger QuickReply campaign event
+        const quickReplyUrl = "https://app.quickreply.ai/api/campaign/8hMwWjsStEp2rtdde_camp/event";
+        const quickReplyBody = {
+            phone: codOrder.customerPhone,
+            amount: codOrder.amount,
+            invoice_url: codOrder.invoiceUrl,
+            order_detail: "Curapod",
+            customer_name: codOrder.customerName
+        };
+        await axios.post(quickReplyUrl, quickReplyBody, {
+            headers: {
+                "client-id": "mctJnMd3cCTBhpDfb_c",
+                "secret-key": "x9CT6wHvJ2DEYAZ4w",
+                "Content-Type": "application/json"
+            }
+        });
+
+        // Send success response
+        res.json({ 
+            message: "COD order confirmed successfully, invoice updated in Zoho, and QuickReply campaign triggered", 
+            codOrder 
+        });
+    } catch (error) {
+        console.error("Error confirming COD order:", error);
+        res.status(500).json({ error: "Error confirming COD order" });
+    }
+});
+
+app.get("/cod", async (req, res) => {
+    try {
+        const codOrders = await COD.find();
+        res.status(200).json(codOrders);
+    } catch (error) {
+        console.error("Error fetching COD orders:", error);
+        res.status(500).json({ message: "Server error while fetching COD orders" });
+    }
+});
+
+app.put("/cod/cancel/:id", async (req, res) => {
+    try {
+        const codOrder = await COD.findById(req.params.id);
+        if (!codOrder) {
+            return res.status(404).json({ message: "COD order not found" });
+        }
+
+        // Cancel the order on Shopify
+        const shopifyResponse = await axios.post(
+            `https://litemed.myshopify.com/admin/api/2024-04/orders/${codOrder.orderId}/cancel.json`,
+            {
+                reason: "customer",
+                transactions: [{ kind: "void" }],
+            },
+            {
+                headers: {
+                    "X-Shopify-Access-Token": process.env.SHOPIFY_ACCESS_TOKEN,
+                    "Content-Type": "application/json",
+                },
+            }
+        );
+
+        if (shopifyResponse.status === 200) {
+            codOrder.status = "Cancelled";
+            await codOrder.save();
+            res.json({ message: "COD order cancelled successfully", codOrder });
+        } else {
+            res.status(shopifyResponse.status).json({ error: "Failed to cancel order on Shopify" });
+        }
+    } catch (error) {
+        console.error("Error canceling order on Shopify:", error.response?.data || error.message);
+        res.status(500).json({ error: "Error canceling COD order" });
+    }
+});
 
 app.listen(port, () => console.log(`Server running on port ${port}`));
