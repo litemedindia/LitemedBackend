@@ -269,48 +269,41 @@ app.post("/kits/delete-multiple", async (req, res) => {
 
 app.put("/cod/confirm/:id", async (req, res) => {
     try {
-        // Step 1: Update the COD order status in the database
         const codOrder = await COD.findById(req.params.id);
+        console.log(codOrder);
         if (!codOrder) {
             return res.status(404).json({ message: "COD order not found" });
         }
         codOrder.status = "Confirmed";
         await codOrder.save();
 
-        // Step 2: Update invoice status in Zoho Books
-        const zohoUrl = `https://www.zohoapis.in/books/v3/invoices/${codOrder.invoiceId}/status/sent?organization_id=60015239129`;
-        await axios.post(zohoUrl, {}, {
-            headers: {
-                "Authorization": "Zoho-oauthtoken 1000.196094717c97f662439fc6bf7f126e98.3d56897dc6fc8be0be029081bd337d3c",
-                "Content-Type": "application/json"
-            }
-        });
-
-        // Step 3: Trigger QuickReply campaign event
-        const quickReplyUrl = "https://app.quickreply.ai/api/campaign/8hMwWjsStEp2rtdde_camp/event";
-        const quickReplyBody = {
-            phone: codOrder.customerPhone,
+        // Step 2: Send data to the ActivePieces webhook
+        const webhookUrl = "https://cloud.activepieces.com/api/v1/webhooks/682LiAIPHY4o1YSzvsPKs";
+        const webhookBody = {
+            orderId: codOrder.orderId,
+            orderNo: codOrder.orderNo,
+            customerName: codOrder.customerName,
+            customerEmail: codOrder.customerEmail,
+            customerPhone: codOrder.customerPhone,
+            invoiceId: codOrder.invoiceId,
+            invoiceUrl: codOrder.invoiceUrl,
             amount: codOrder.amount,
-            invoice_url: codOrder.invoiceUrl,
-            order_detail: "Curapod",
-            customer_name: codOrder.customerName
+            status: codOrder.status
         };
-        await axios.post(quickReplyUrl, quickReplyBody, {
+        await axios.post(webhookUrl, webhookBody, {
             headers: {
-                "client-id": "mctJnMd3cCTBhpDfb_c",
-                "secret-key": "x9CT6wHvJ2DEYAZ4w",
                 "Content-Type": "application/json"
             }
         });
 
         // Send success response
         res.json({ 
-            message: "COD order confirmed successfully, invoice updated in Zoho, and QuickReply campaign triggered", 
+            message: "COD order confirmed successfully and webhook triggered", 
             codOrder 
         });
     } catch (error) {
-        console.error("Error confirming COD order:", error);
-        res.status(500).json({ error: "Error confirming COD order" });
+        console.log("Error confirming COD order:", error);
+        res.status(500).json(error);
     }
 });
 
