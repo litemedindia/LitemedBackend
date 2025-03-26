@@ -10,7 +10,6 @@ const bcrypt = require("bcryptjs");
 const port = 3001;
 const fs = require("fs");
 const { console } = require("inspector");
-const { status } = require("init");
 
 // Connect to MongoDB
 connectDB();
@@ -226,7 +225,7 @@ app.post("/cod", async (req, res) => {
             customerEmail,
             customerPhone,
             invoiceId,
-            status: status || "Awating Confirmation" // Use provided status or default
+            status: "Awating Confirmation"
         });
 
         // Save to database
