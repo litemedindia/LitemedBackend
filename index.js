@@ -9,6 +9,8 @@ const csv = require("csv-parser");
 const bcrypt = require("bcryptjs");
 const port = 3001;
 const fs = require("fs");
+const { console } = require("inspector");
+const { status } = require("init");
 
 // Connect to MongoDB
 connectDB();
@@ -43,7 +45,18 @@ const kitSchema = new mongoose.Schema({
 
 const Kit = mongoose.models.Kit || mongoose.model("Kit", kitSchema);
 
-// GET request to fetch available kits based on quantity
+const codSchema = new mongoose.Schema({
+    orderId: String,
+    orderNo: String,
+    customerName: String,
+    customerEmail: String,
+    customerPhone: String,
+    invoiceId: String,
+    status: { type: String, enum: ["Awating Confirmation", "Confirmed" , "Cancelled"], default: "Awating Confirmation" },
+});
+
+const COD = mongoose.models.COD || mongoose.model("COD", codSchema);
+
 app.get("/", (req, res) => {
     res.send("Server is running!");
 });
@@ -189,6 +202,61 @@ app.delete("/kits/:id", async (req, res) => {
         res.status(500).json({ message: "Error deleting kit", error });
     }
 });
+
+
+
+// Updated /cod endpoint
+app.post("/cod", async (req, res) => {
+    const { 
+        orderId, 
+        orderNo, 
+        customerName, 
+        customerEmail, 
+        customerPhone, 
+        invoiceId, 
+        status 
+    } = req.body;
+
+    try {
+        // Create a new COD entry
+        const codEntry = new COD({
+            orderId,
+            orderNo,
+            customerName,
+            customerEmail,
+            customerPhone,
+            invoiceId,
+            status: status || "Awating Confirmation" // Use provided status or default
+        });
+
+        // Save to database
+        await codEntry.save();
+
+        // Log the details to console
+        console.log("New COD Order Details:");
+        console.log("Order ID:", orderId);
+        console.log("Order Number:", orderNo);
+        console.log("Customer Name:", customerName);
+        console.log("Customer Email:", customerEmail);
+        console.log("Customer Phone:", customerPhone);
+        console.log("Invoice ID:", invoiceId);
+        console.log("Status:", status || "Awating Confirmation");
+
+        // Find related kits (if you still want this functionality)
+        const kits = await Kit.find({ orderId });
+
+        // Respond with both the COD entry and related kits
+        res.json({
+            cod: codEntry,
+            kits: kits
+        });
+    } catch (error) {
+        console.error("Error processing COD request:", error);
+        res.status(500).json({ error: "Error processing COD request" });
+    }
+});
+
+
 
 app.post("/kits/delete-multiple", async (req, res) => {
     try {
