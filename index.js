@@ -35,8 +35,11 @@ const User = mongoose.models.User || mongoose.model("User", UserSchema);
 
 // Define Kit Schema
 const kitSchema = new mongoose.Schema({
-    serialNumber: String,
-    batchNumber: String,
+    serialNumbers: { 
+        type: [String], 
+        required: true 
+    }, // Removed the validator for exactly 2 serial numbers
+    batchNumber: String, // Keeping as single string for simplicity; could be [String] if needed
     status: { type: String, enum: ["available", "sold"], default: "available" },
     orderId: { type: String, default: "" },
     invoiceUrl: { type: String, default: "" },
@@ -71,10 +74,11 @@ app.get("/kits", async (req, res) => {
         res.status(500).json({ message: "Server error while fetching kits" });
     }
 });
+
 app.get("/kits/available", async (req, res) => {
     try {
         const { quantity } = req.query;
-        const kitsToFetch = (quantity ? parseInt(quantity) : 1) * 2; // Default to 1 kit if not specified
+        const kitsToFetch = quantity ? parseInt(quantity) : 1;
         const kits = await Kit.find({ status: "available" }).limit(kitsToFetch);
         
         if (kits.length < kitsToFetch) {
@@ -86,33 +90,53 @@ app.get("/kits/available", async (req, res) => {
         res.status(500).json({ error: "Error fetching available kits" });
     }
 });
-
 // POST request to update kits as sold
 app.post("/kits/sell", async (req, res) => {
     const { orderId, invoiceUrl, invoiceId, quantity } = req.body;
     try {
-        const kitsToSell = (quantity ? parseInt(quantity) : 1) * 2;
-        
-        // Fetch available kits sorted by serial number
-        const kits = await Kit.find({ status: "available" })
-            .sort({ serialNumber: 1 }) // Sort by serial number in ascending order
+        const kitsToSell = quantity ? parseInt(quantity) : 1; // Number of kits (each kit has 2 serial numbers)
+        const totalSerialNumbersNeeded = kitsToSell * 2;
+
+        // Fetch available kits to get serial numbers
+        const availableKits = await Kit.find({ status: "available" })
+            .sort({ _id: 1 })
             .limit(kitsToSell);
-        
-        if (kits.length < kitsToSell) {
+
+        if (availableKits.length < kitsToSell) {
             return res.status(400).json({ error: "Not enough available kits" });
         }
-        
-        const updatePromises = kits.map(kit => 
-            Kit.findByIdAndUpdate(kit._id, {
+
+        // Collect all serial numbers from available kits
+        const serialNumbersToSell = availableKits.flatMap(kit => kit.serialNumbers);
+        console.log(serialNumbersToSell);
+        // Check if an existing kit with this orderId exists
+        let existingKit = await Kit.findOne({ orderId });
+        if (existingKit) {
+            // Append new serial numbers to existing kit
+            existingKit.serialNumbers = [...existingKit.serialNumbers, ...serialNumbersToSell];
+            existingKit.status = "sold";
+            existingKit.invoiceUrl = invoiceUrl;
+            existingKit.invoiceId = invoiceId;
+            await existingKit.save();
+            res.json(existingKit);
+        } else {
+            // Create a new kit document with all serial numbers
+            const newKit = new Kit({
+                serialNumbers: serialNumbersToSell,
+                batchNumber: availableKits[0].batchNumber, // Use first kit's batch number or adjust logic
                 status: "sold",
                 orderId,
                 invoiceUrl,
                 invoiceId
-            }, { new: true })
-        );
-        
-        const updatedKits = await Promise.all(updatePromises);
-        res.json(updatedKits);
+            });
+            await newKit.save();
+            res.json(newKit);
+        }
+
+        // Delete the original available kits
+        const kitIdsToDelete = availableKits.map(kit => kit._id);
+        await Kit.deleteMany({ _id: { $in: kitIdsToDelete } });
+
     } catch (error) {
         res.status(500).json({ error: "Error updating kits" });
     }
@@ -122,10 +146,10 @@ app.post("/kits/sell", async (req, res) => {
 app.post("/kits/addDummy", async (req, res) => {
     try {
         const dummyKits = [
-            { serialNumber: "SN001", batchNumber: "B001", status: "available" },
-            { serialNumber: "SN002", batchNumber: "B002", status: "available" },
-            { serialNumber: "SN003", batchNumber: "B003", status: "available" },
-            { serialNumber: "SN004", batchNumber: "B004", status: "available" }
+            { serialNumbers: ["SN001", "SN002"], batchNumber: "B001", status: "available" },
+            { serialNumbers: ["SN003", "SN004"], batchNumber: "B002", status: "available" },
+            { serialNumbers: ["SN005", "SN006"], batchNumber: "B003", status: "available" },
+            { serialNumbers: ["SN007", "SN008"], batchNumber: "B004", status: "available" }
         ];
         await Kit.insertMany(dummyKits);
         res.json({ message: "Dummy kits added successfully" });
@@ -147,7 +171,7 @@ app.post("/kits/upload", upload.single("file"), async (req, res) => {
             .pipe(csv())
             .on("data", (row) => {
                 kits.push({
-                    serialNumber: row.serialNumber,
+                    serialNumbers: [row.serialNumber1, row.serialNumber2],
                     batchNumber: row.batchNumber,
                     status: row.status || "available",
                     orderId: "",
@@ -157,7 +181,7 @@ app.post("/kits/upload", upload.single("file"), async (req, res) => {
             })
             .on("end", async () => {
                 await Kit.insertMany(kits);
-                fs.unlinkSync(filePath); // Delete file after processing
+                fs.unlinkSync(filePath);
                 res.json({ message: "CSV data uploaded successfully" });
             });
     } catch (error) {
