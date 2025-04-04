@@ -38,8 +38,11 @@ const kitSchema = new mongoose.Schema({
     serialNumbers: { 
         type: [String], 
         required: true 
-    }, // Removed the validator for exactly 2 serial numbers
-    batchNumber: String, // Keeping as single string for simplicity; could be [String] if needed
+    },
+    batchNumbers: { 
+        type: [String], 
+        required: true 
+    }, // Changed from batchNumber to batchNumbers
     status: { type: String, enum: ["available", "sold"], default: "available" },
     orderId: { type: String, default: "" },
     invoiceUrl: { type: String, default: "" },
@@ -47,6 +50,7 @@ const kitSchema = new mongoose.Schema({
 });
 
 const Kit = mongoose.models.Kit || mongoose.model("Kit", kitSchema);
+
 
 const codSchema = new mongoose.Schema({
     orderId: String,
@@ -85,7 +89,21 @@ app.get("/kits/available", async (req, res) => {
             return res.status(400).json({ error: "Not enough available kits" });
         }
         
-        res.json(kits);
+        const combinedKit = {
+            serialNumbers: kits.flatMap(kit => kit.serialNumbers),
+            batchNumbers: [
+                ...new Set(
+                    kits.map(kit => 
+                        kit.batchNumbers && kit.batchNumbers.length > 0 
+                            ? kit.batchNumbers[0] 
+                            : kit.batchNumber || "Unknown"
+                    ).filter(Boolean)
+                )
+            ],
+            status: "available"
+        };
+        
+        res.json(combinedKit);
     } catch (error) {
         res.status(500).json({ error: "Error fetching available kits" });
     }
@@ -94,36 +112,36 @@ app.get("/kits/available", async (req, res) => {
 app.post("/kits/sell", async (req, res) => {
     const { orderId, invoiceUrl, invoiceId, quantity } = req.body;
     try {
-        const kitsToSell = quantity ? parseInt(quantity) : 1; // Number of kits (each kit has 2 serial numbers)
+        const kitsToSell = quantity ? parseInt(quantity) : 1;
         const totalSerialNumbersNeeded = kitsToSell * 2;
-
-        // Fetch available kits to get serial numbers
-        const availableKits = await Kit.find({ status: "available" })
-            .sort({ _id: 1 })
-            .limit(kitsToSell);
+        const availableKits = await Kit.find({ status: "available" }).sort({ _id: 1 }).limit(kitsToSell);
 
         if (availableKits.length < kitsToSell) {
             return res.status(400).json({ error: "Not enough available kits" });
         }
 
-        // Collect all serial numbers from available kits
         const serialNumbersToSell = availableKits.flatMap(kit => kit.serialNumbers);
-        console.log(serialNumbersToSell);
-        // Check if an existing kit with this orderId exists
+        const batchNumbersToSell = availableKits
+            .map(kit => 
+                kit.batchNumbers && kit.batchNumbers.length > 0 
+                    ? kit.batchNumbers[0] 
+                    : kit.batchNumber || "Unknown"
+            )
+            .filter(Boolean);
+
         let existingKit = await Kit.findOne({ orderId });
         if (existingKit) {
-            // Append new serial numbers to existing kit
             existingKit.serialNumbers = [...existingKit.serialNumbers, ...serialNumbersToSell];
+            existingKit.batchNumbers = [...new Set([...existingKit.batchNumbers, ...batchNumbersToSell])];
             existingKit.status = "sold";
             existingKit.invoiceUrl = invoiceUrl;
             existingKit.invoiceId = invoiceId;
             await existingKit.save();
             res.json(existingKit);
         } else {
-            // Create a new kit document with all serial numbers
             const newKit = new Kit({
                 serialNumbers: serialNumbersToSell,
-                batchNumber: availableKits[0].batchNumber, // Use first kit's batch number or adjust logic
+                batchNumbers: batchNumbersToSell,
                 status: "sold",
                 orderId,
                 invoiceUrl,
@@ -133,23 +151,20 @@ app.post("/kits/sell", async (req, res) => {
             res.json(newKit);
         }
 
-        // Delete the original available kits
         const kitIdsToDelete = availableKits.map(kit => kit._id);
         await Kit.deleteMany({ _id: { $in: kitIdsToDelete } });
-
     } catch (error) {
         res.status(500).json({ error: "Error updating kits" });
     }
 });
-
 // POST request to add dummy kits
 app.post("/kits/addDummy", async (req, res) => {
     try {
         const dummyKits = [
-            { serialNumbers: ["SN001", "SN002"], batchNumber: "B001", status: "available" },
-            { serialNumbers: ["SN003", "SN004"], batchNumber: "B002", status: "available" },
-            { serialNumbers: ["SN005", "SN006"], batchNumber: "B003", status: "available" },
-            { serialNumbers: ["SN007", "SN008"], batchNumber: "B004", status: "available" }
+            { serialNumbers: ["SN001", "SN002"], batchNumbers: ["B001"], status: "available" },
+            { serialNumbers: ["SN003", "SN004"], batchNumbers: ["B002"], status: "available" },
+            { serialNumbers: ["SN005", "SN006"], batchNumbers: ["B003"], status: "available" },
+            { serialNumbers: ["SN007", "SN008"], batchNumbers: ["B004"], status: "available" }
         ];
         await Kit.insertMany(dummyKits);
         res.json({ message: "Dummy kits added successfully" });
@@ -172,7 +187,7 @@ app.post("/kits/upload", upload.single("file"), async (req, res) => {
             .on("data", (row) => {
                 kits.push({
                     serialNumbers: [row.serialNumber1, row.serialNumber2],
-                    batchNumber: row.batchNumber,
+                    batchNumbers: [row.batchNumber], // Array with one batch
                     status: row.status || "available",
                     orderId: "",
                     invoiceUrl: "",
@@ -188,7 +203,6 @@ app.post("/kits/upload", upload.single("file"), async (req, res) => {
         res.status(500).json({ error: "Error processing CSV file" });
     }
 });
-
 app.post("/login", async (req, res) => {
     const { username, password } = req.body;
 
