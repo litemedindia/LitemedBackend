@@ -92,7 +92,11 @@ app.post("/kits/sell", async (req, res) => {
     const { orderId, invoiceUrl, invoiceId, quantity } = req.body;
     try {
         const kitsToSell = (quantity ? parseInt(quantity) : 1) * 2;
-        const kits = await Kit.find({ status: "available" }).limit(kitsToSell);
+        
+        // Fetch available kits sorted by serial number
+        const kits = await Kit.find({ status: "available" })
+            .sort({ serialNumber: 1 }) // Sort by serial number in ascending order
+            .limit(kitsToSell);
         
         if (kits.length < kitsToSell) {
             return res.status(400).json({ error: "Not enough available kits" });
