@@ -69,14 +69,13 @@ const COD = mongoose.models.COD || mongoose.model("COD", codSchema);
 app.get("/", (req, res) => {
     res.send("Server is running!");
 });
-
 app.get("/kits", async (req, res) => {
     try {
         const kits = await Kit.find();
         const formattedKits = kits.map(kit => ({
             ...kit.toObject(),
-            serialNumbers: kit.serialNumbers.join("&"),
-            batchNumbers: kit.batchNumbers.join("&")
+            serialNumbers: kit.serialNumbers.join(" & "),
+            batchNumbers: kit.batchNumbers.join(" & ")
         }));
         res.status(200).json(formattedKits);
     } catch (error) {
