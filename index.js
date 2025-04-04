@@ -69,10 +69,16 @@ const COD = mongoose.models.COD || mongoose.model("COD", codSchema);
 app.get("/", (req, res) => {
     res.send("Server is running!");
 });
+
 app.get("/kits", async (req, res) => {
     try {
         const kits = await Kit.find();
-        res.status(200).json(kits);
+        const formattedKits = kits.map(kit => ({
+            ...kit.toObject(),
+            serialNumbers: kit.serialNumbers.join("&"),
+            batchNumbers: kit.batchNumbers.join("&")
+        }));
+        res.status(200).json(formattedKits);
     } catch (error) {
         console.error("Error fetching kits:", error);
         res.status(500).json({ message: "Server error while fetching kits" });
@@ -90,7 +96,7 @@ app.get("/kits/available", async (req, res) => {
         }
         
         const combinedKit = {
-            serialNumbers: kits.flatMap(kit => kit.serialNumbers),
+            serialNumbers: kits.flatMap(kit => kit.serialNumbers).join("&"),
             batchNumbers: [
                 ...new Set(
                     kits.map(kit => 
@@ -99,7 +105,7 @@ app.get("/kits/available", async (req, res) => {
                             : kit.batchNumber || "Unknown"
                     ).filter(Boolean)
                 )
-            ],
+            ].join("&"),
             status: "available"
         };
         
@@ -122,11 +128,7 @@ app.post("/kits/sell", async (req, res) => {
 
         const serialNumbersToSell = availableKits.flatMap(kit => kit.serialNumbers);
         const batchNumbersToSell = availableKits
-            .map(kit => 
-                kit.batchNumbers && kit.batchNumbers.length > 0 
-                    ? kit.batchNumbers[0] 
-                    : kit.batchNumber || "Unknown"
-            )
+            .map(kit => kit.batchNumbers && kit.batchNumbers.length > 0 ? kit.batchNumbers[0] : kit.batchNumber || "Unknown")
             .filter(Boolean);
 
         let existingKit = await Kit.findOne({ orderId });
@@ -137,7 +139,11 @@ app.post("/kits/sell", async (req, res) => {
             existingKit.invoiceUrl = invoiceUrl;
             existingKit.invoiceId = invoiceId;
             await existingKit.save();
-            res.json(existingKit);
+            res.json({
+                ...existingKit.toObject(),
+                serialNumbers: existingKit.serialNumbers.join(" & "),
+                batchNumbers: existingKit.batchNumbers.join(" & ")
+            });
         } else {
             const newKit = new Kit({
                 serialNumbers: serialNumbersToSell,
@@ -148,7 +154,11 @@ app.post("/kits/sell", async (req, res) => {
                 invoiceId
             });
             await newKit.save();
-            res.json(newKit);
+            res.json({
+                ...newKit.toObject(),
+                serialNumbers: newKit.serialNumbers.join(" & "),
+                batchNumbers: newKit.batchNumbers.join(" & ")
+            });
         }
 
         const kitIdsToDelete = availableKits.map(kit => kit._id);
