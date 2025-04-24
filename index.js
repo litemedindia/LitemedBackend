@@ -119,7 +119,9 @@ app.post("/kits/sell", async (req, res) => {
     try {
         const kitsToSell = quantity ? parseInt(quantity) : 1;
         const totalSerialNumbersNeeded = kitsToSell * 2;
-        const availableKits = await Kit.find({ status: "available" }).sort({ _id: 1 }).limit(kitsToSell);
+        const availableKits = await Kit.find({ status: "available" })
+            .sort({ "serialNumbers.0": 1 })
+            .limit(kitsToSell);
 
         if (availableKits.length < kitsToSell) {
             return res.status(400).json({ error: "Not enough available kits" });
@@ -166,14 +168,15 @@ app.post("/kits/sell", async (req, res) => {
         res.status(500).json({ error: "Error updating kits" });
     }
 });
+
 // POST request to add dummy kits
 app.post("/kits/addDummy", async (req, res) => {
     try {
         const dummyKits = [
-            { serialNumbers: ["SN001", "SN002"], batchNumbers: ["B001"], status: "available" },
-            { serialNumbers: ["SN003", "SN004"], batchNumbers: ["B002"], status: "available" },
-            { serialNumbers: ["SN005", "SN006"], batchNumbers: ["B003"], status: "available" },
-            { serialNumbers: ["SN007", "SN008"], batchNumbers: ["B004"], status: "available" }
+            { serialNumbers: ["SN009", "SN010"], batchNumbers: ["B004"], status: "available" },
+            { serialNumbers: ["SN011", "SN012"], batchNumbers: ["B004"], status: "available" },
+            { serialNumbers: ["SN013", "SN014"], batchNumbers: ["B004"], status: "available" },
+            { serialNumbers: ["SN015", "SN016"], batchNumbers: ["B004"], status: "available" }
         ];
         await Kit.insertMany(dummyKits);
         res.json({ message: "Dummy kits added successfully" });
@@ -368,6 +371,8 @@ app.get("/cod", async (req, res) => {
     }
 });
 
+
+
 app.put("/cod/cancel/:id", async (req, res) => {
     try {
         // First, find and mark the order as cancelled in the database
@@ -426,6 +431,42 @@ app.put("/cod/cancel/:id", async (req, res) => {
     } catch (error) {
         console.error("Error canceling order:", error.response?.data || error.message);
         res.status(500).json({ error: "Error canceling COD order" });
+    }
+});
+
+app.post("/kits/make-available", async (req, res) => {
+    try {
+        const { ids } = req.body;
+        if (!Array.isArray(ids) || ids.length === 0) {
+            return res.status(400).json({ error: "Invalid request. Provide an array of IDs." });
+        }
+        const soldKits = await Kit.find({ _id: { $in: ids }, status: "sold" });
+        if (soldKits.length !== ids.length) {
+            return res.status(400).json({ error: "Some kits are not sold or do not exist." });
+        }
+        const newAvailableKits = [];
+        for (const soldKit of soldKits) {
+            const serialNumbers = soldKit.serialNumbers;
+            const batchNumber = soldKit.batchNumbers[0] || "Unknown";
+            for (let i = 0; i < serialNumbers.length; i += 2) {
+                const pair = serialNumbers.slice(i, i + 2);
+                const newKit = new Kit({
+                    serialNumbers: pair,
+                    batchNumbers: [batchNumber],
+                    status: "available",
+                    orderId: "",
+                    invoiceUrl: "",
+                    invoiceId: ""
+                });
+                newAvailableKits.push(newKit);
+            }
+        }
+        await Kit.insertMany(newAvailableKits);
+        await Kit.deleteMany({ _id: { $in: ids } });
+        res.status(200).json({ message: "Kits made available successfully", newKits: newAvailableKits });
+    } catch (error) {
+        console.error("Error making kits available:", error);
+        res.status(500).json({ error: "Error making kits available" });
     }
 });
 
