@@ -11,6 +11,7 @@ const port = 3001;
 const fs = require("fs");
 const { console } = require("inspector");
 const axios = require("axios");
+const { type } = require("os");
 
 // Connect to MongoDB
 connectDB();
@@ -65,6 +66,22 @@ const codSchema = new mongoose.Schema({
 });
 
 const COD = mongoose.models.COD || mongoose.model("COD", codSchema);
+
+
+const returnServiceSchema = new mongoose.Schema({
+    orderId: String,
+    customerName: String,
+    customerEmail: String,
+    customerPhone: String,
+    ticketType: { type: String, enum: ["Refund", "Replacement"] },
+    status: { 
+      type: String, 
+      enum: ["Awaiting Return", "Return Received", "Refund Initiated"], 
+      default: "Awaiting Return" 
+    }
+});
+
+const ReturnService = mongoose.models.ReturnService || mongoose.model("ReturnService", returnServiceSchema);
 
 app.get("/", (req, res) => {
     res.send("Server is running!");
@@ -467,6 +484,86 @@ app.post("/kits/make-available", async (req, res) => {
     } catch (error) {
         console.error("Error making kits available:", error);
         res.status(500).json({ error: "Error making kits available" });
+    }
+});
+
+app.post("/returnservice", async (req, res) => {
+    const { orderId, customerName, customerEmail, customerPhone, ticketType } = req.body;
+    
+    if (!orderId || !customerName || !customerEmail || !customerPhone || !ticketType) {
+        return res.status(400).json({ error: "Missing required fields" });
+    }
+    
+    if (!["Refund", "Replacement"].includes(ticketType)) {
+        return res.status(400).json({ error: "Invalid ticket type" });
+    }
+    
+    const newTicket = new ReturnService({
+        orderId,
+        customerName,
+        customerEmail,
+        customerPhone,
+        ticketType,
+        status: "Awaiting Return"
+    });
+    
+    try {
+        await newTicket.save();
+        res.status(201).json(newTicket);
+    } catch (error) {
+        console.error("Error creating return service ticket:", error);
+        res.status(500).json({ error: "Error creating ticket" });
+    }
+});
+
+app.get("/returnservice", async (req, res) => {
+    try {
+        const tickets = await ReturnService.find();
+        res.status(200).json(tickets);
+    } catch (error) {
+        console.error("Error fetching return service tickets:", error);
+        res.status(500).json({ message: "Server error while fetching return service tickets" });
+    }
+});
+
+app.get("/returnservice/:id", async (req, res) => {
+    try {
+        const ticket = await ReturnService.findById(req.params.id);
+        if (!ticket) {
+            return res.status(404).json({ error: "Ticket not found" });
+        }
+        res.json(ticket);
+    } catch (error) {
+        console.error("Error fetching return service ticket:", error);
+        res.status(500).json({ error: "Error fetching ticket" });
+    }
+});
+
+app.put("/returnservice/:id/action", async (req, res) => {
+    const { action } = req.body;
+    if (!action) {
+        return res.status(400).json({ error: "Action is required" });
+    }
+    
+    try {
+        const ticket = await ReturnService.findById(req.params.id);
+        if (!ticket) {
+            return res.status(404).json({ error: "Ticket not found" });
+        }
+        
+        if (action === "return_received" && ticket.status === "Awaiting Return") {
+            ticket.status = "Return Received";
+        } else if (action === "refund_initiated" && ticket.status === "Return Received" && ticket.ticketType === "Refund") {
+            ticket.status = "Refund Initiated";
+        } else {
+            return res.status(400).json({ error: "Invalid action for current status and ticket type" });
+        }
+        
+        await ticket.save();
+        res.json(ticket);
+    } catch (error) {
+        console.error("Error updating return service ticket:", error);
+        res.status(500).json({ error: "Error updating ticket" });
     }
 });
 
