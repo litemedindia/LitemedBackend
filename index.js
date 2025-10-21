@@ -349,7 +349,7 @@ app.put("/cod/confirm/:id", async (req, res) => {
         await codOrder.save();
 
         // Step 2: Send data to the ActivePieces webhook
-        const webhookUrl = "https://cloud.activepieces.com/api/v1/webhooks/682LiAIPHY4o1YSzvsPKs";
+        const webhookUrl = "https://cloud.activepieces.com/api/v1/webhooks/hzF4YfnmmEy5tT1WKSSh3";
         const webhookBody = {
             orderId: codOrder.orderId,
             orderNo: codOrder.orderNo,
